@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useDroppable } from '@dnd-kit/core';
 import { useBoatStore } from '../store/useBoatStore';
 import { PaddlerDraggable } from './PaddlerDraggable';
-import { Info, Plus } from 'lucide-react';
+import { Info, Plus, ArrowDownAZ } from 'lucide-react';
 import clsx from 'clsx';
 import { AddAthleteModal } from './AddAthleteModal';
 
@@ -13,7 +13,15 @@ export function PoolArea() {
     data: { isPool: true }
   });
 
+  const [sortBy, setSortBy] = useState<'default' | 'name' | 'gender'>('default');
+
   const unassignedPaddlers = useBoatStore((state) => state.unassignedPaddlers);
+
+  const sortedPaddlers = [...unassignedPaddlers].sort((a, b) => {
+    if (sortBy === 'name') return a.name.localeCompare(b.name);
+    if (sortBy === 'gender') return (a.gender || '').localeCompare(b.gender || '');
+    return 0; // Default order
+  });
 
   return (
     <>
@@ -23,6 +31,31 @@ export function PoolArea() {
             Available Paddlers
           </h2>
           <div className="flex items-center gap-2">
+            <div className="relative group/sort">
+              <button className="p-1.5 text-slate-400 hover:text-brand-400 hover:bg-slate-800 rounded-lg transition-colors flex items-center gap-1" title="Sort paddlers">
+                <ArrowDownAZ size={16} />
+              </button>
+              <div className="absolute top-full left-0 mt-1 w-32 bg-slate-800 border border-slate-700 rounded-xl shadow-xl opacity-0 invisible group-hover/sort:opacity-100 group-hover/sort:visible transition-all z-20 overflow-hidden">
+                <button 
+                  onClick={() => setSortBy('default')}
+                  className={clsx("w-full text-left px-3 py-2 text-sm hover:bg-slate-700 transition-colors", sortBy === 'default' && "text-brand-400 bg-slate-700/50")}
+                >
+                  Default
+                </button>
+                <button 
+                  onClick={() => setSortBy('name')}
+                  className={clsx("w-full text-left px-3 py-2 text-sm hover:bg-slate-700 transition-colors", sortBy === 'name' && "text-brand-400 bg-slate-700/50")}
+                >
+                  Name A-Z
+                </button>
+                <button 
+                  onClick={() => setSortBy('gender')}
+                  className={clsx("w-full text-left px-3 py-2 text-sm hover:bg-slate-700 transition-colors", sortBy === 'gender' && "text-brand-400 bg-slate-700/50")}
+                >
+                  Gender
+                </button>
+              </div>
+            </div>
             <button 
               onClick={() => setIsModalOpen(true)}
               className="p-1.5 bg-brand-500/20 text-brand-400 hover:bg-brand-500/40 rounded-lg transition-colors"
@@ -43,7 +76,7 @@ export function PoolArea() {
           isOver && "bg-slate-800/30 inset-shadow-sm"
         )}
       >
-        {unassignedPaddlers.map((paddler) => (
+        {sortedPaddlers.map((paddler) => (
           <PaddlerDraggable key={paddler.id} paddler={paddler} />
         ))}
         {unassignedPaddlers.length === 0 && (

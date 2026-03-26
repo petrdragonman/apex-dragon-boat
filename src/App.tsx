@@ -1,5 +1,5 @@
 import { useState, useRef } from 'react';
-import { Users, FileDown, Activity, Eye, EyeOff, Save, Trash2, GitBranch, FileCode, FileUp } from 'lucide-react';
+import { Users, FileDown, Activity, Eye, EyeOff, Save, Trash2, GitBranch, FileCode, FileUp, RotateCcw } from 'lucide-react';
 import { DndContext, type DragEndEvent, DragOverlay, type DragStartEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import { useBoatStore } from './store/useBoatStore';
 import type { Paddler, SeatPosition } from './types';
@@ -21,7 +21,9 @@ function App() {
 
   const assignSeat = useBoatStore((state) => state.assignSeat);
   const unassignSeat = useBoatStore((state) => state.unassignSeat);
+  const clearBoat = useBoatStore((state) => state.clearBoat);
   const seating = useBoatStore((state) => state.seating);
+  const unassignedPaddlers = useBoatStore((state) => state.unassignedPaddlers);
   
   const showWeight = useBoatStore((state) => state.showWeight);
   const toggleShowWeight = useBoatStore((state) => state.toggleShowWeight);
@@ -97,8 +99,8 @@ function App() {
       });
 
       const activeVersionName = activeVersionId ? versions[activeVersionId]?.name : '';
-      const pdfTitle = `Apex Dragon Boat Seating Plan${activeVersionName ? ` - ${activeVersionName}` : ''}`;
-      const filename = `Dragon-Boat-Seating-Plan${activeVersionName ? `-${activeVersionName.replace(/[^a-zA-Z0-9]/g, '-')}` : ''}.pdf`;
+      const pdfTitle = activeVersionName ? activeVersionName : 'Apex Dragon Boat Seating Plan';
+      const filename = activeVersionName ? `${activeVersionName}.pdf` : 'Dragon-Boat-Seating-Plan.pdf';
 
       // Title
       doc.setFontSize(22);
@@ -163,6 +165,21 @@ function App() {
           lineWidth: 0.5,
         }
       });
+
+      // @ts-ignore - jspdf-autotable adds lastAutoTable property to doc
+      const finalY = doc.lastAutoTable?.finalY || 150;
+      
+      if (unassignedPaddlers.length > 0) {
+        doc.setFontSize(14);
+        doc.setTextColor(15, 23, 42); // slate-900
+        doc.text('Reserves:', 14, finalY + 15);
+        
+        doc.setFontSize(11);
+        doc.setTextColor(100, 116, 139); // slate-500
+        const reserveNames = unassignedPaddlers.map(p => p.name).join(', ');
+        const splitText = doc.splitTextToSize(reserveNames, 182); // 210mm width - 28mm margins
+        doc.text(splitText, 14, finalY + 22);
+      }
 
       doc.save(filename);
     } catch (error) {
@@ -249,7 +266,8 @@ function App() {
   const handleSaveVersion = (e: React.FormEvent) => {
     e.preventDefault();
     if (!newVersionName.trim()) return;
-    saveVersion(newVersionName.trim());
+    const newId = saveVersion(newVersionName.trim());
+    setActiveVersionId(newId);
     setNewVersionName('');
   };
 
@@ -378,6 +396,14 @@ function App() {
                 onChange={handleFileUpload}
                 className="hidden" 
               />
+              <button 
+                onClick={clearBoat}
+                className="glass-panel px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-rose-500/20 text-rose-400 hover:text-rose-300 transition-all active:scale-95 duration-200"
+                title="Return all paddlers to the pool"
+              >
+                <RotateCcw size={18} />
+                Clear Boat
+              </button>
               <button 
                 onClick={() => fileInputRef.current?.click()}
                 className="glass-panel px-4 py-2 rounded-xl flex items-center gap-2 hover:bg-slate-800/80 transition-all active:scale-95 duration-200"

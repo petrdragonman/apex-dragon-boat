@@ -1,20 +1,23 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import type { BoatState, Paddler, SeatPosition } from '../types';
+import { db } from '../lib/firebase';
+import { doc, onSnapshot, setDoc } from 'firebase/firestore';
 
 interface BoatStore extends BoatState {
+  lastSyncTime?: number;
   setPaddlers: (paddlers: Paddler[]) => void;
   assignSeat: (paddlerId: string, seat: SeatPosition) => void;
   unassignSeat: (seat: SeatPosition) => void;
   removePaddler: (paddlerId: string) => void;
   clearBoat: () => void;
   toggleShowWeight: () => void;
-  saveVersion: (name: string) => void;
+  saveVersion: (name: string) => string;
   loadVersion: (id: string) => void;
   deleteVersion: (id: string) => void;
   importPaddlers: (paddlers: Paddler[]) => void;
   addPaddler: (paddler: Paddler) => void;
-  importState: (newState: Partial<BoatState>) => void;
+  importState: (newState: Partial<BoatState>, isFromFirebase?: boolean) => void;
 }
 
 const mockPaddlers: Paddler[] = [
@@ -60,16 +63,20 @@ export const useBoatStore = create<BoatStore>()(
         unassignedPaddlers: paddlers
       }),
 
-      addPaddler: (paddler) => set((state) => ({
-        unassignedPaddlers: [...state.unassignedPaddlers, paddler]
-      })),
+      addPaddler: (paddler) => set((state) => {
+        if (state.unassignedPaddlers.some(p => p.id === paddler.id)) return state;
+        return {
+          unassignedPaddlers: [...state.unassignedPaddlers, paddler]
+        };
+      }),
 
-      importState: (newState) => set((state) => ({
+      importState: (newState, isFromFirebase = false) => set((state) => ({
         ...state,
         seating: newState.seating || {},
         unassignedPaddlers: newState.unassignedPaddlers || [],
         versions: newState.versions || {},
         showWeight: newState.showWeight ?? true,
+        lastSyncTime: isFromFirebase ? Date.now() : state.lastSyncTime,
       })),
 
       assignSeat: (paddlerId, seat) => set((state) => {
@@ -102,7 +109,7 @@ export const useBoatStore = create<BoatStore>()(
           }
         } else {
           newUnassigned = newUnassigned.filter(p => p.id !== paddlerId);
-          if (occupant) {
+          if (occupant && !newUnassigned.some(p => p.id === occupant.id)) {
             newUnassigned.push(occupant);
           }
         }
@@ -120,9 +127,13 @@ export const useBoatStore = create<BoatStore>()(
         const newSeating = { ...state.seating };
         delete newSeating[seat];
 
+        const isAlreadyInPool = state.unassignedPaddlers.some(p => p.id === occupant.id);
+
         return {
           seating: newSeating,
-          unassignedPaddlers: [...state.unassignedPaddlers, occupant],
+          unassignedPaddlers: isAlreadyInPool 
+            ? state.unassignedPaddlers 
+            : [...state.unassignedPaddlers, occupant],
         };
       }),
 
@@ -144,30 +155,41 @@ export const useBoatStore = create<BoatStore>()(
 
       clearBoat: () => set((state) => {
         const allOccupants = Object.values(state.seating).filter((p): p is Paddler => p !== undefined);
+        const newUnassigned = [...state.unassignedPaddlers];
+        
+        allOccupants.forEach(occupant => {
+           if (!newUnassigned.some(p => p.id === occupant.id)) {
+              newUnassigned.push(occupant);
+           }
+        });
+
         return {
           seating: {},
-          unassignedPaddlers: [...state.unassignedPaddlers, ...allOccupants],
+          unassignedPaddlers: newUnassigned,
         };
       }),
 
       toggleShowWeight: () => set((state) => ({ showWeight: !state.showWeight })),
 
-      saveVersion: (name) => set((state) => {
+      saveVersion: (name) => {
         const id = Date.now().toString();
-        const newVersion = {
-          id,
-          name,
-          seating: { ...state.seating },
-          unassignedPaddlers: [...state.unassignedPaddlers],
-          timestamp: Date.now(),
-        };
-        return {
-          versions: {
-            ...state.versions,
-            [id]: newVersion,
-          }
-        };
-      }),
+        set((state) => {
+          const newVersion = {
+            id,
+            name,
+            seating: { ...state.seating },
+            unassignedPaddlers: [...state.unassignedPaddlers],
+            timestamp: Date.now(),
+          };
+          return {
+            versions: {
+              ...state.versions,
+              [id]: newVersion,
+            }
+          };
+        });
+        return id;
+      },
 
       loadVersion: (id) => set((state) => {
         const version = state.versions[id];
@@ -228,3 +250,38 @@ export const useBoatStore = create<BoatStore>()(
     }
   )
 );
+
+// Firebase Sync Logic
+if (db) {
+  const docRef = doc(db, 'boatPlans', 'default');
+  
+  // 1. Listen to Firebase and update local state
+  onSnapshot(docRef, (docSnapshot) => {
+    if (docSnapshot.exists()) {
+      const data = docSnapshot.data() as Partial<BoatState>;
+      useBoatStore.getState().importState(data, true);
+    }
+  });
+
+  // 2. Listen to local state changes and push to Firebase
+  useBoatStore.subscribe((state, prevState) => {
+    // Prevent infinite loop: don't push if the last update came from Firebase
+    if (state.lastSyncTime !== prevState.lastSyncTime) {
+      return; 
+    }
+
+    if (
+      state.seating !== prevState.seating ||
+      state.unassignedPaddlers !== prevState.unassignedPaddlers ||
+      state.versions !== prevState.versions ||
+      state.showWeight !== prevState.showWeight
+    ) {
+      setDoc(docRef, {
+        seating: state.seating,
+        unassignedPaddlers: state.unassignedPaddlers,
+        versions: state.versions,
+        showWeight: state.showWeight,
+      }, { merge: true }).catch(console.error);
+    }
+  });
+}

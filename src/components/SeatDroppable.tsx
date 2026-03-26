@@ -23,7 +23,7 @@ export function SeatDroppable({ id, label }: Props) {
     <div
       ref={setNodeRef}
       className={clsx(
-        "relative w-full h-[60px] rounded-xl border flex items-center justify-center transition-all",
+        "group relative w-full h-[60px] rounded-xl border flex items-center justify-center transition-all",
         isOver && !participant && "border-brand-400 bg-brand-500/20 shadow-[0_0_15px_rgba(45,212,191,0.2)]",
         isOver && participant && "border-rose-400 bg-rose-500/20", // Indicates swap
         !isOver && !participant && "border-slate-700/50 bg-slate-900/40 border-dashed",
